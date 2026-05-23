@@ -223,5 +223,8 @@ jobs:
           git add metrics.merged.svg
           git commit -m "Merge SVG files vertically [$(date +%Y-%m-%d_%H-%M-%S)]" || echo "No changes to commit"
 
+          # 先拉取远程更改，避免冲突
+          git pull origin main --rebase || git pull origin main
+
           # 推送到main分支
           git push origin main
