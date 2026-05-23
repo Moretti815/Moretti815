@@ -1,2 +1,7 @@
 ![Metrics](/github-metrics.svg)
+![](/metrics.introduction.svg)
+![](/metrics.isocalendar.svg)
+![](/metrics.calendar.svg)
+![](/metrics.reactions.svg)
 ![Metrics](/metrics.followup.svg)
+![](/metrics.stars.svg)
