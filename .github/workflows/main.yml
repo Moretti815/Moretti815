@@ -166,49 +166,94 @@ jobs:
           # 创建临时目录
           mkdir -p ./merged
 
+          # 使用Python脚本进行更可靠的SVG合并
+          python3 << 'PYTHON_SCRIPT'
+          import xml.etree.ElementTree as ET
+          import os
+          import re
+
+          svg_files = [
+            "github-metrics.svg",
+            "metrics.isocalendar.svg",
+            "metrics.calendar.svg",
+            "metrics.reactions.svg",
+            "metrics.stars.svg",
+            "metrics.introduction.svg"
+          ]
+
           # 计算总高度和最大宽度
-          TOTAL_HEIGHT=0
-          MAX_WIDTH=0
+          total_height = 0
+          max_width = 0
+          file_info = []
 
-          for file in "${SVG_FILES[@]}"; do
-            if [ -f "$file" ]; then
-              HEIGHT=$(grep -oP 'height="\K[0-9]+' "$file" | head -1)
-              WIDTH=$(grep -oP 'width="\K[0-9]+' "$file" | head -1)
-              TOTAL_HEIGHT=$((TOTAL_HEIGHT + HEIGHT))
-              if [ "$WIDTH" -gt "$MAX_WIDTH" ]; then
-                MAX_WIDTH=$WIDTH
-              fi
-            fi
-          done
+          for filename in svg_files:
+            if os.path.exists(filename):
+              with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+              
+              # 提取width和height
+              width_match = re.search(r'width="(\d+)"', content)
+              height_match = re.search(r'height="(\d+)"', content)
+              
+              if width_match and height_match:
+                width = int(width_match.group(1))
+                height = int(height_match.group(1))
+                total_height += height
+                max_width = max(max_width, width)
+                file_info.append((filename, width, height, content))
 
-          # 创建合并后的SVG文件头
-          cat > ./merged/metrics.merged.svg << EOF
-          <svg xmlns="http://www.w3.org/2000/svg" width="${MAX_WIDTH}" height="${TOTAL_HEIGHT}">
-            <defs>
-              <style/>
-            </defs>
-          EOF
+          # 创建根SVG元素
+          root = ET.Element('svg')
+          root.set('xmlns', 'http://www.w3.org/2000/svg')
+          root.set('width', str(max_width))
+          root.set('height', str(total_height))
 
-          # 拼接每个SVG文件的内容
-          CURRENT_Y=0
-          for file in "${SVG_FILES[@]}"; do
-            if [ -f "$file" ]; then
-              HEIGHT=$(grep -oP 'height="\K[0-9]+' "$file" | head -1)
-              WIDTH=$(grep -oP 'width="\K[0-9]+' "$file" | head -1)
+          # 添加defs
+          defs = ET.SubElement(root, 'defs')
+          style = ET.SubElement(defs, 'style')
 
-              # 提取SVG内容（去掉svg标签）
-              echo "  <g transform=\"translate(0, ${CURRENT_Y})\">" >> ./merged/metrics.merged.svg
-              sed -n '/<svg/,/<\/svg>/p' "$file" | sed '1d;$d' >> ./merged/metrics.merged.svg
-              echo "  </g>" >> ./merged/metrics.merged.svg
+          current_y = 0
+          for filename, width, height, content in file_info:
+            # 创建g元素用于定位
+            g = ET.SubElement(root, 'g')
+            g.set('transform', f'translate(0, {current_y})')
+            
+            # 提取SVG内部内容（foreignObject等）
+            # 找到foreignObject并添加到g中
+            foreign_matches = re.findall(r'(<foreignObject.*?</foreignObject>)', content, re.DOTALL)
+            for foreign_xml in foreign_matches:
+              try:
+                foreign_elem = ET.fromstring(foreign_xml)
+                g.append(foreign_elem)
+              except:
+                pass
+            
+            # 如果没有foreignObject，尝试提取其他SVG元素
+            if not foreign_matches:
+              # 提取svg标签内的所有内容
+              inner_match = re.search(r'<svg[^>]*>(.*?)</svg>', content, re.DOTALL)
+              if inner_match:
+                inner_content = inner_match.group(1)
+                # 移除defs部分，避免重复
+                inner_content = re.sub(r'<defs>.*?</defs>', '', inner_content, flags=re.DOTALL)
+                # 创建临时元素来包装内容
+                try:
+                  wrapper = ET.fromstring(f'<g>{inner_content}</g>')
+                  for child in wrapper:
+                    g.append(child)
+                except:
+                  pass
+            
+            current_y += height
 
-              CURRENT_Y=$((CURRENT_Y + HEIGHT))
-            fi
-          done
+          # 写入文件
+          tree = ET.ElementTree(root)
+          ET.indent(tree, space='  ')
+          tree.write('./merged/metrics.merged.svg', encoding='utf-8', xml_declaration=True)
 
-          # 关闭SVG标签
-          echo "</svg>" >> ./merged/metrics.merged.svg
+          print("SVG files merged successfully!")
+          PYTHON_SCRIPT
 
-          echo "SVG files merged successfully!"
           ls -la ./merged/
 
       - name: Commit to main branch
